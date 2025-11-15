@@ -5,6 +5,7 @@
 #include "Diagnostics.h"
 #include "Failsafe.h"
 #include "Leds.h"
+#include "NotchFilter.h"
 #include <Arduino.h>
 
 static void handleMotion(const String &input, unsigned long nowMs);
@@ -16,6 +17,69 @@ void CommandParser_handleLine(const String &line, unsigned long nowMs)
     if (line.length() >= 2 && line[0] == 'L')
     {
         Leds_handleCommand(line);
+        Failsafe_onAnyCommand(nowMs);
+        return;
+    }
+
+    // Notch Filter commands start with "NF"
+    if (line.length() >= 2 && line.startsWith("NF"))
+    {
+        if (line == "NF?") {
+            NotchFilter_dump(Serial);
+        }
+        else if (line == "NF-") {
+            NotchFilter_clear();
+            Serial.println(F("[NF] All notches cleared"));
+        }
+        else if (line.startsWith("NFEN=")) {
+            int val = line.substring(5).toInt();
+            NotchFilter_setEnabled(val != 0);
+            Serial.print(F("[NF] Filter "));
+            Serial.println(val != 0 ? F("ENABLED") : F("DISABLED"));
+        }
+        else if (line.startsWith("NF+")) {
+            // Format: NF+centerUs,halfWidthUs,depth
+            String params = line.substring(3);
+            int comma1 = params.indexOf(',');
+            int comma2 = params.indexOf(',', comma1 + 1);
+            
+            if (comma1 > 0 && comma2 > comma1) {
+                int centerUs = params.substring(0, comma1).toInt();
+                int halfWidthUs = params.substring(comma1 + 1, comma2).toInt();
+                float depth = params.substring(comma2 + 1).toFloat();
+                
+                uint32_t id;
+                if (NotchFilter_add(centerUs, halfWidthUs, depth, &id)) {
+                    Serial.print(F("[NF] Added notch ID="));
+                    Serial.print(id);
+                    Serial.print(F(" center="));
+                    Serial.print(centerUs);
+                    Serial.print(F("us, width=±"));
+                    Serial.print(halfWidthUs);
+                    Serial.print(F("us, depth="));
+                    Serial.println(depth, 2);
+                } else {
+                    Serial.println(F("[NF] ERROR: Failed to add notch (check params/max)"));
+                }
+            } else {
+                Serial.println(F("[NF] ERROR: Format NF+centerUs,halfWidthUs,depth"));
+            }
+        }
+        else if (line.startsWith("NF#")) {
+            uint32_t id = line.substring(3).toInt();
+            if (NotchFilter_removeById(id)) {
+                Serial.print(F("[NF] Removed notch ID="));
+                Serial.println(id);
+            } else {
+                Serial.print(F("[NF] ERROR: Notch ID="));
+                Serial.print(id);
+                Serial.println(F(" not found"));
+            }
+        }
+        else {
+            Serial.println(F("[NF] Unknown command. Use: NF?, NF-, NF+, NF#, NFEN="));
+        }
+        
         Failsafe_onAnyCommand(nowMs);
         return;
     }

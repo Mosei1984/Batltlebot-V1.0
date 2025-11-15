@@ -23,9 +23,10 @@ High-performance combat robot control system built on ESP32 with Bluetooth app i
 
 - **main.cpp**: Main control loop with strict 10ms timing
 - **Drive**: Motor control with left/right differential steering
-- **Weapon**: Arming sequence and weapon motor control
+- **Weapon**: Arming sequence and weapon motor control with notch filtering
+- **NotchFilter**: Dynamic resonance avoidance for weapon ESC output
 - **Leds**: Non-blocking WS2812B LED effects with state-based visualization
-- **BluetoothComm**: Bluetooth serial communication handler
+- **BluetoothComm**: Bluetooth + USB Serial communication handler
 - **CommandParser**: Command protocol parser for app integration
 - **Failsafe**: Link timeout monitoring with weapon-aware behavior
 - **Diagnostics**: Error tracking and system health monitoring
@@ -57,10 +58,38 @@ The failsafe system prioritizes safety while allowing operational flexibility:
 
 ## Command Protocol
 
-Commands via Bluetooth app:
-- **M**: Motion control (left/right motor speed)
-- **F**: Function commands (weapon, LED modes)
-- **Weapon Arming**: Two-step safety sequence
+### Motion & Function Commands (Bluetooth/Serial)
+- **Motion**: 6-character format (e.g., `F99R50` = Forward 99%, Right turn 50%)
+- **Weapon Arming**: `U` (arm request), `u` (disarm), `W` (full throttle), `w` (idle)
+- **LED Commands**: `L0` (off), `L1RRGGBB` (solid color), `LA` (auto mode)
+
+### Notch Filter Commands (USB Serial or Bluetooth)
+
+Dynamic ESC output filtering to avoid mechanical resonances:
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `NFEN=1` | Enable notch filter | `NFEN=1` |
+| `NFEN=0` | **Disable notch filter (SAFETY!)** | `NFEN=0` |
+| `NF+<center>,<width>,<depth>` | Add notch | `NF+1500,100,0.7` |
+| `NF-` | Clear all notches | `NF-` |
+| `NF?` | Show current config | `NF?` |
+| `NF#<id>` | Remove notch by ID | `NF#1` |
+
+**Parameters:**
+- `center`: PWM center frequency in µs (e.g., 1500)
+- `width`: Half-width in µs (±range, e.g., 100 = ±100µs)
+- `depth`: Attenuation depth 0.0-1.0 (0=no effect, 1=full damping)
+
+**Example Session:**
+```
+NFEN=1              // Enable filter (default: OFF)
+NF+1500,100,0.7     // Avoid 1400-1600µs range, 70% damping
+NF+1800,50,0.5      // Avoid 1750-1850µs range, 50% damping
+NF?                 // Verify configuration
+```
+
+**Safety:** Filter is OFF by default and can be disabled anytime with `NFEN=0` to bypass all filtering if issues occur.
 
 ## Build & Upload
 

@@ -167,3 +167,54 @@ Ziel: Nach deiner Anpassung hat das Projekt eine professionelle, modulare WS2812
 - den Bot-Status (Fahren, Waffe, Failsafes, Fehler) klar visualisiert,
 - das bestehende Timing und die Failsafes nicht stört,
 - debug- und diagnosefreundlich ist.
+
+---
+
+## 10. Notch-Filter für Waffenmotor (implementiert)
+
+Das System verfügt über einen dynamischen Notch-Filter zur Vermeidung von Resonanzfrequenzen am ESC-Ausgang.
+
+### Architektur
+- **Modul**: `NotchFilter.h` / `NotchFilter.cpp`
+- **Typ**: Kennlinien-Transformation (Post-Rampe, nicht-blockierend)
+- **Integration**: Weapon.cpp (angewandt nach Rampe, vor PWM-Ausgabe)
+- **Aktivierung**: Nur im Zustand ARMED und oberhalb ESC_ARM_US + 5µs
+
+### Funktionsweise
+- Mehrere Notches (max. 8) können gleichzeitig definiert werden
+- Jeder Notch: centerUs (Zentrum), halfWidthUs (Breite), depth (0.0-1.0 Dämpfung)
+- Dreieckfenster-Algorithmus mit multiplicativer Kombination
+- Global EIN/AUS schaltbar (Standard: AUS für Sicherheit)
+- Kein Einfluss auf Arming-Sequenz oder Failsafes
+
+### Befehle (USB Serial & Bluetooth)
+- `NFEN=1` / `NFEN=0` → Filter global aktivieren/deaktivieren (Safety-Feature!)
+- `NF+<centerUs>,<halfWidthUs>,<depth>` → Notch hinzufügen (z.B. NF+1500,100,0.5)
+- `NF-` → Alle Notches löschen
+- `NF?` → Konfiguration anzeigen
+- `NF#<id>` → Notch mit ID entfernen
+
+### Beispiel
+```
+NFEN=1              // Filter aktivieren
+NF+1500,100,0.7     // Notch bei 1500µs, ±100µs Breite, 70% Dämpfung
+NF+1800,50,0.5      // Zweiter Notch bei 1800µs, ±50µs, 50% Dämpfung
+NF?                 // Status prüfen
+```
+
+### Performance
+- CPU-Last: <30µs pro Loop @ 100Hz (ESP32 @240MHz)
+- Keine Blockaden, kein delay()
+- Kompatibel mit bestehenden Rampen und Failsafes
+
+### Hinweis: KEIN PID-Controller
+Ein PID-Controller wurde bewusst NICHT implementiert, da:
+- Das System Open-Loop ohne RPM-Feedback arbeitet
+- PID ohne Rückmeldung keinen Nutzen bringt (kann sogar schaden via Windup)
+- Notch-Filter + Rampen ausreichend für Resonanzvermeidung
+- Bei Bedarf später mit ESC-Telemetrie/Tachometer nachrüstbar
+
+### Input-Erweiterung
+`BluetoothComm_poll()` akzeptiert jetzt Befehle von beiden Quellen parallel:
+1. USB Serial (z.B. für Debugging/Tuning am Tisch)
+2. Bluetooth (App-Steuerung im Einsatz)

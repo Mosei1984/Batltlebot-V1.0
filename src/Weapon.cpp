@@ -2,6 +2,7 @@
 #include "Config.h"
 #include "DebugIO.h"
 #include "Diagnostics.h"
+#include "NotchFilter.h"
 #include <Arduino.h>
 
 static WeaponState weaponState       = WeaponState::DISARMED;
@@ -51,6 +52,8 @@ void Weapon_init() {
     weaponState        = WeaponState::DISARMED;
     weaponArmStartMs   = 0;
     lastWeaponDebugMs  = millis();
+
+    NotchFilter_init(ESC_ARM_US);
 }
 
 void Weapon_armRequest() {
@@ -144,8 +147,12 @@ void Weapon_update(unsigned long dtMs, unsigned long nowMs) {
     if (currentWeaponUs < ESC_OFF_US) currentWeaponUs = ESC_OFF_US;
     if (currentWeaponUs > ESC_MAX_US) currentWeaponUs = ESC_MAX_US;
 
+    // Notch Filter anwenden (nur wenn ARMED und über Idle)
+    bool filterActive = (weaponState == WeaponState::ARMED && currentWeaponUs > ESC_ARM_US + 5);
+    int outputUs = NotchFilter_apply(currentWeaponUs, filterActive);
+
     if (currentWeaponUs != before) {
-        ledcWrite(WEAPON_CHANNEL, usToDuty(currentWeaponUs));
+        ledcWrite(WEAPON_CHANNEL, usToDuty(outputUs));
 
         if ((nowMs - lastWeaponDebugMs) >= 100UL) {
             lastWeaponDebugMs = nowMs;
